@@ -22,7 +22,7 @@ SPLITS = ["training", "evaluation", "validation"]
 
 CATEGORIES = [
     "Bread",
-    "Dairy",
+    "Dairy product",
     "Dessert",
     "Egg",
     "Fried food",
