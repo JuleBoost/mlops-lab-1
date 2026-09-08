@@ -1,0 +1,21 @@
+[project]
+name = "mlops-lab-1"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+authors = [
+    { name = "JuleBoost", email = "juleboost@gmail.com" }
+]
+requires-python = ">=3.12"
+dependencies = [
+    "dvc>=3.67.1",
+    "dvc-s3>=3.3.0",
+    "pillow>=12.3.0",
+]
+
+[project.scripts]
+mlops-lab-1 = "mlops_lab_1:main"
+
+[build-system]
+requires = ["uv_build>=0.12.10,<0.13.0"]
+build-backend = "uv_build"
