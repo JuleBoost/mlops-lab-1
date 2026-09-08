@@ -1,55 +1,37 @@
-# Lab 1 — Answers to Key Questions
+Lab 1 - Answers to the questions
 
-## 1. What files does `uv init` create?
-- `pyproject.toml` — project metadata + dependencies
-- `README.md` — empty starter readme
-- `.python-version` — pins the Python version for the project
-- `src/<package_name>/__init__.py` — starter package with a `main()` entrypoint
-- (on first `uv add`/`uv run`) `uv.lock` — locked dependency versions, and a local `.venv/`
+1. Observe the files created, what do you think they contain.
 
-## 2. What are DVC-created files used for?
-- `.dvc/config` — project-level DVC config (remote name/url, default remote) — safe to commit
-- `.dvc/config.local` — machine-local config (credentials: user/password) — git-ignored, never committed
-- `.dvc/.gitignore` — tells git to ignore `.dvc/tmp`, `.dvc/cache`, `.dvc/config.local`
-- `.dvcignore` — like `.gitignore` but for DVC (excludes paths from DVC tracking)
-- `<name>.dvc` (e.g. `data.dvc`) — a small pointer file committed to git; contains the MD5 hash, file count, and size of the tracked folder/file. This is what lets git version data *indirectly* — git tracks the pointer, DVC tracks the content by hash.
+Running uv init gave us pyproject.toml, README.md, .python-version, and a src folder with a starter package (an __init__.py with a main function). pyproject.toml holds the project name, Python version requirement and the list of dependencies. .python-version just pins which Python version the project expects. Once we started adding dependencies with uv add, it also created uv.lock (the exact locked versions of every dependency, so installs are reproducible) and a .venv folder (the actual virtual environment with everything installed).
 
-## 3. Where are DVC credentials stored?
-- In `.dvc/config.local` (project-local scope) — **not** committed to git (git-ignored by `.dvc/.gitignore`)
-- Alternative: `--global` scope stores them in the user's OS-level config directory (e.g. `%LOCALAPPDATA%\iterative\dvc\config` on Windows) — outside any git repo entirely
-- We used `--local` (matches DagsHub's own recommended setup) after finding `--global` unreliable across different terminal/environment contexts
+2. What are the created files. What do you think they are used for? And which ones should be pushed to git?
 
-## 4. How does `.gitignore` change after DVC tracking?
-- Before `dvc add data`: `data/` is untracked but not ignored by git
-- After `dvc add data`: DVC appends `/data` to `.gitignore` automatically, so git ignores the actual data folder — only `data.dvc` (the pointer file) is committed
+dvc init created a .dvc folder and a .dvcignore file. Inside .dvc there is a config file (where the remote name and URL live, safe to commit), a config.local file (this is where credentials like username and password end up, it's meant to stay local and never be committed), a tmp folder, and a .gitignore that DVC writes itself to make sure config.local, tmp and its cache never get committed by accident. .dvcignore works the same way .gitignore does, but for DVC instead of git.
 
-## 5. What information does `data.dvc` contain?
-```yaml
-outs:
-- md5: a3a457d03c51ff8b037a833440f6ad13.dir   # hash of the whole tracked directory
-  size: 1188442712                             # total size in bytes (~1.13 GB)
-  nfiles: 16643                                 # number of files tracked
-  hash: md5
-  path: data                                    # what it points to
-```
-This hash lets DVC fetch the exact matching data snapshot from the remote (DagsHub) for any given git commit.
+Out of all of that, only .dvc/config and .dvcignore should go to git. config.local should never be pushed since it holds credentials.
 
-## 6. Verify code vs. data storage across platforms
-- **GitHub** (`github.com/JuleBoost/mlops-lab-1`): code, `pyproject.toml`, `data.dvc` pointer files, DVC/Git config — no actual image bytes
-- **DagsHub** (`dagshub.com/JuleBoost/mlops-lab-1`): the actual dataset content (images), addressed by content hash, pushed via `dvc push`
+3. Where are the credentials stored? and what are the options other than --global? Should the credentials be pushed to github?
 
-## 7. Test cloning and data retrieval procedure
-```bash
-git clone https://github.com/JuleBoost/mlops-lab-1.git
-cd mlops-lab-1/Lab/lab1
-dvc pull   # fetches actual data from DagsHub using the hashes in data.dvc
-```
+We ended up storing them with --local, which writes to .dvc/config.local inside the project folder itself. The other option is --global, which stores them outside the repo entirely, in a config file under the user's own system folder (on Windows that's under AppData). We actually started with --global but ran into a strange problem where the settings we saved didn't show up when running the same command from a different terminal on the same machine, so we switched to --local instead, which is also what DagsHub recommends in their own setup instructions.
 
-## 8. Confirm version rollback functionality
-```bash
-git log --oneline -- data.dvc     # see every commit that changed the data pointer
-git checkout <older-commit-hash>  # roll back code + data.dvc pointer
-dvc checkout                      # sync working data folder to match that pointer
-git checkout main                 # return to latest
-dvc checkout
-```
+Credentials should never be pushed to GitHub. That's exactly why config.local is git-ignored by default.
+
+4. Take a look at the .gitignore file. Explain what happened.
+
+Before we ran dvc add data, our data folder wasn't tracked by git but it also wasn't ignored, so git would have picked up every single image file if we tried to add everything. Once we ran dvc add data, DVC added a line for /data straight into .gitignore automatically. So now git ignores the actual folder completely, and the only thing that gets committed is data.dvc, the small pointer file that represents it.
+
+5. Do you see a .dvc file? What does it contain?
+
+Yes, data.dvc. It's a small text file with the md5 hash of the whole data folder, the total size in bytes, and the number of files it contains. That hash is what DVC uses to know exactly which version of the data belongs to which commit, and it's also what it uses to fetch the right files back from the DagsHub remote when you run dvc pull.
+
+6. You can check your main branch on the github web UI. Is the code there? Is the data there? Do you have any file that points to the data location. And what about dagshub web UI do you see the data?
+
+On GitHub, the code is there (pyproject.toml, the src folder, etc.) along with data.dvc, but none of the actual images, since those were never tracked by git in the first place. data.dvc is exactly the file that points to where the data lives. On DagsHub, we pushed both the code (same as GitHub, since DagsHub also acts as a git remote) and the actual data through dvc push, so the dataset itself should be visible there once the upload finishes.
+
+7. In a completely new temporary folder clone your github repo. Do you see the data folder? What dvc command is needed to get the data folder?
+
+Not tested yet, we'll do this once the dataset upload to DagsHub is finished. But the expected result is that right after cloning, the data folder either won't exist at all or will be empty, since git never stored the actual files. Running dvc pull afterwards is what actually downloads the images from the DagsHub remote using the hash stored in data.dvc.
+
+8. Do you still see the new folders you created? food11_processed and food11_processed_mini?
+
+Still pending, we haven't run the processing script yet. Once that's done we'll track it with DVC and test what happens when checking out an older commit from before those folders existed, then running dvc checkout. The expectation is that those two folders should disappear when going back to an older version, and come back once you check out main again.
