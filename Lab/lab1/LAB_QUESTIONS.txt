@@ -26,12 +26,18 @@ Yes, data.dvc. It's a small text file with the md5 hash of the whole data folder
 
 6. You can check your main branch on the github web UI. Is the code there? Is the data there? Do you have any file that points to the data location. And what about dagshub web UI do you see the data?
 
-On GitHub, the code is there (pyproject.toml, the src folder, etc.) along with data.dvc, but none of the actual images, since those were never tracked by git in the first place. data.dvc is the file that points to where the data lives. DagsHub also acts as a git remote, so the same code and data.dvc pointer show up there too. The actual images only show up on DagsHub once dvc push finishes copying them into DagsHub's storage, addressed by content hash rather than stored as regular git files.
+On GitHub the code is there (pyproject.toml, the src folder, etc.) along with data.dvc, but none of the actual images, since those were never tracked by git in the first place. data.dvc is the file that points to where the data lives.
+
+DagsHub also acts as a git remote, so pushing there gives it the same code and the same data.dvc pointer. The difference is that after dvc push the images themselves are in DagsHub's storage too, so browsing into data on the DagsHub web UI actually shows food11_raw, food11_processed and food11_processed_mini, and you can click down into the category folders and see the pictures. Each folder is marked as dvc rather than git, which is the UI's way of saying the content came from DVC storage and not from the git repo.
 
 7. In a completely new temporary folder clone your github repo. Do you see the data folder? What dvc command is needed to get the data folder?
 
-Right after cloning, the data folder is either missing entirely or shows up empty, since git never stored the actual image files, only the data.dvc pointer. Running dvc pull is what actually downloads the images from the DagsHub remote, using the hash stored in data.dvc to fetch the matching snapshot.
+We cloned the repo into a temporary folder and the data folder wasn't there at all. The only thing present was data.dvc, a 116 byte pointer file, next to the code. That makes sense because git never stored the images, only the pointer.
+
+dvc pull is the command that brings the data back. One thing worth noting is that it doesn't work straight after a clone: the remote URL is in .dvc/config which is committed, but the username and password live in .dvc/config.local which is git-ignored, so a fresh clone has no credentials and dvc pull fails with an authentication error until you set them again on that machine.
 
 8. Do you still see the new folders you created? food11_processed and food11_processed_mini?
 
-No. Checking out an older commit from before those folders were added, then running dvc checkout, makes food11_processed and food11_processed_mini disappear from the working directory, since that older commit's data.dvc pointer doesn't include them. Checking out main again and running dvc checkout brings them right back.
+No, they disappear. We checked out the older commit (the one where we first tracked the data folder, when it still held only the raw images) and ran dvc checkout. At that commit data.dvc points to a different hash covering 16643 files instead of 36578, so after the checkout the data folder contained only food11_raw. Both processed folders were gone.
+
+Going back with git checkout main followed by dvc checkout brought them straight back, and no re-download was needed since everything was still in the local DVC cache.
