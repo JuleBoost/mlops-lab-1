@@ -1,0 +1,55 @@
+# Lab 1 — Answers to Key Questions
+
+## 1. What files does `uv init` create?
+- `pyproject.toml` — project metadata + dependencies
+- `README.md` — empty starter readme
+- `.python-version` — pins the Python version for the project
+- `src/<package_name>/__init__.py` — starter package with a `main()` entrypoint
+- (on first `uv add`/`uv run`) `uv.lock` — locked dependency versions, and a local `.venv/`
+
+## 2. What are DVC-created files used for?
+- `.dvc/config` — project-level DVC config (remote name/url, default remote) — safe to commit
+- `.dvc/config.local` — machine-local config (credentials: user/password) — git-ignored, never committed
+- `.dvc/.gitignore` — tells git to ignore `.dvc/tmp`, `.dvc/cache`, `.dvc/config.local`
+- `.dvcignore` — like `.gitignore` but for DVC (excludes paths from DVC tracking)
+- `<name>.dvc` (e.g. `data.dvc`) — a small pointer file committed to git; contains the MD5 hash, file count, and size of the tracked folder/file. This is what lets git version data *indirectly* — git tracks the pointer, DVC tracks the content by hash.
+
+## 3. Where are DVC credentials stored?
+- In `.dvc/config.local` (project-local scope) — **not** committed to git (git-ignored by `.dvc/.gitignore`)
+- Alternative: `--global` scope stores them in the user's OS-level config directory (e.g. `%LOCALAPPDATA%\iterative\dvc\config` on Windows) — outside any git repo entirely
+- We used `--local` (matches DagsHub's own recommended setup) after finding `--global` unreliable across different terminal/environment contexts
+
+## 4. How does `.gitignore` change after DVC tracking?
+- Before `dvc add data`: `data/` is untracked but not ignored by git
+- After `dvc add data`: DVC appends `/data` to `.gitignore` automatically, so git ignores the actual data folder — only `data.dvc` (the pointer file) is committed
+
+## 5. What information does `data.dvc` contain?
+```yaml
+outs:
+- md5: a3a457d03c51ff8b037a833440f6ad13.dir   # hash of the whole tracked directory
+  size: 1188442712                             # total size in bytes (~1.13 GB)
+  nfiles: 16643                                 # number of files tracked
+  hash: md5
+  path: data                                    # what it points to
+```
+This hash lets DVC fetch the exact matching data snapshot from the remote (DagsHub) for any given git commit.
+
+## 6. Verify code vs. data storage across platforms
+- **GitHub** (`github.com/JuleBoost/mlops-lab-1`): code, `pyproject.toml`, `data.dvc` pointer files, DVC/Git config — no actual image bytes
+- **DagsHub** (`dagshub.com/JuleBoost/mlops-lab-1`): the actual dataset content (images), addressed by content hash, pushed via `dvc push`
+
+## 7. Test cloning and data retrieval procedure
+```bash
+git clone https://github.com/JuleBoost/mlops-lab-1.git
+cd mlops-lab-1/Lab/lab1
+dvc pull   # fetches actual data from DagsHub using the hashes in data.dvc
+```
+
+## 8. Confirm version rollback functionality
+```bash
+git log --oneline -- data.dvc     # see every commit that changed the data pointer
+git checkout <older-commit-hash>  # roll back code + data.dvc pointer
+dvc checkout                      # sync working data folder to match that pointer
+git checkout main                 # return to latest
+dvc checkout
+```
