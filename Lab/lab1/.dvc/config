@@ -1,0 +1,5 @@
+[core]
+    remote = origin
+['remote "origin"']
+    url = https://dagshub.com/JuleBoost/mlops-lab-1.dvc
+    auth = basic
