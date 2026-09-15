@@ -3,3 +3,5 @@ __pycache__/
 .venv/
 archive.zip
 /data
+mlflow.db
+mlruns/
