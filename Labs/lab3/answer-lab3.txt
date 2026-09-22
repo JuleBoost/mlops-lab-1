@@ -1,0 +1,11 @@
+Lab 3 - Answers (1-2)
+
+1. Registered model version? Logged vs registered model?
+Version v1 (first registration of food11).
+Logged artifact = files one run produced (model.pth + MLmodel in mlruns), tied to that run ID, immutable.
+Registered model = named entry (food11) versioning a chosen artifact in the Registry, decoupled from runs so it can be aliased, compared and served.
+
+2. Aliases vs old stages? Why version separately? Why alias more flexible?
+Old Staging/Production stages deprecated; replaced by free-form aliases (e.g. champion, challenger).
+Version separately because runs are many/experimental (incl. failures) while the registry keeps only promoted candidates with their own lineage.
+Alias is a mutable pointer to any version: reassignable without renumbering, multiple/custom names, no forced linear Staging->Production ladder.
