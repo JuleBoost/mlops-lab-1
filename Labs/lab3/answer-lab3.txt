@@ -1,4 +1,4 @@
-Lab 3 - Answers (1-2)
+Lab 3 - Answers
 
 1. Registered model version? Logged vs registered model?
 Version v1 (first registration of food11).
@@ -9,3 +9,27 @@ Registered model = named entry (food11) versioning a chosen artifact in the Regi
 Old Staging/Production stages deprecated; replaced by free-form aliases (e.g. champion, challenger).
 Version separately because runs are many/experimental (incl. failures) while the registry keeps only promoted candidates with their own lineage.
 Alias is a mutable pointer to any version: reassignable without renumbering, multiple/custom names, no forced linear Staging->Production ladder.
+
+3. Why models:/food11@champion instead of a .pth path? Newer version?
+URI decouples code from run IDs and disk paths. Serving a newer version = reassign the champion alias, zero code/image change.
+(serve.py loads via mlflow.pyfunc + unwraps the torch module for tensor inference.)
+
+4. Why deps before source? Change in serve.py?
+Docker caches one layer per instruction. Deps change rarely, code often: copying pyproject/uv.lock + sync first keeps the big venv layer cached; editing serve.py rebuilds only the tiny src layer.
+(Builder uses --no-install-project because building our own package would need src/ present.)
+
+5. Single-stage vs multi-stage size? Biggest layers?
+Image is 9.64GB; biggest layer is COPY .venv at 6.24GB (CUDA torch). Runtime stage drops uv, caches and build tools; a naive single-stage would carry all of that on top.
+(Only the multi-stage image was built; comparison from docker history.)
+
+6. Without .dockerignore?
+Build context would include archive.zip (1.1GB), data/, mlruns/, .venv/ (GBs): slow context upload, risk of bloating the image. Copying the Windows .venv over the Linux one would break the image.
+
+7. Why not 127.0.0.1:5000? host.docker.internal?
+Each container has its own loopback, so 127.0.0.1 points at the container itself. host.docker.internal is Docker Desktop DNS for the host gateway, reaching the host's mlflow server.
+
+8. New container, same image, no rebuild — model loads?
+Yes. Verified: removed container, started a new one from food11-api:latest, POST predict returned Soup 99.9%. Image holds code+env; model bytes + alias resolve at container startup.
+
+9. Dockerfile vs image versioning — what's missing?
+Image exists only locally. Missing: push to a registry (docker push, immutable tag/digest) plus CI doing it reproducibly. No other machine can pull this exact image yet. (Model weights themselves still resolve at runtime via the registry.)
