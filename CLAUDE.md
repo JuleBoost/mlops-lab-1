@@ -76,3 +76,30 @@ src/mlops_lab_1/__init__.py` because only pyproject/uv.lock were copied. Fix:
 - Windows `Start-Process`/`Start-Job` background servers are killed when the tool call
 ends. For servers, run the command in your own terminal; `docker run -d` (daemon-side)
 survives fine.
+
+## Lab 4: three traps in the containerized mlflow
+
+**Symptom:** inference exited with `403 ... 'Invalid Host header - possible DNS rebinding attack
+detected'` when calling `http://mlflow:5000`.
+**Cause:** mlflow >= 3 only accepts Host headers on an allowlist (localhost + private IPs); the
+compose service name is not on it.
+**Fix:** `--allowed-hosts mlflow:5000,localhost:5000,127.0.0.1:5000` on the server command.
+
+**Symptom:** model registered fine, but inference died with `Could not find an "MLmodel"
+configuration file at "/tmp/..."`.
+**Cause:** with a plain `--default-artifact-root /mlflow-data/mlruns`, each *client* writes
+artifacts to that path itself. A training run on the Windows host therefore created
+`C:\mlflow-data\mlruns\...`, which no container can see — the volume held only `mlflow.db`.
+**Fix:** `--serve-artifacts --artifacts-destination /mlflow-data/mlruns`, so uploads and
+downloads are proxied through the server and always land on the volume.
+**What not to try:** bind-mounting `C:\mlflow-data` — it papers over the split instead of
+removing it, and breaks as soon as a client runs on another machine.
+
+**Symptom:** `create_model_version(name, f"runs:/{run_id}/model", run_id)` registered without
+error, but loading `models:/food11@champion` failed to find the MLmodel file.
+**Cause:** in mlflow 3 the model is a separate *logged model* entity (`m-<id>`), not a plain run
+artifact path, so the `runs:/.../model` source points at nothing.
+**Fix:** find it via `search_logged_models(...)`, then register with BOTH the URI and the id:
+`create_model_version(name, f"models:/{m.model_id}", run_id=..., model_id=m.model_id)`.
+Passing only the `models:/m-...` URI is rejected with "The model_id request parameter must
+identify the resource that contains the source".

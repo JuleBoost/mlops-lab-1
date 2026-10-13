@@ -1,0 +1,72 @@
+Lab 4 - Answers
+
+1. No volume on /mlflow-data: what survives a container recreate?
+Nothing. Data goes to the container's writable layer, which is deleted with the container.
+Tested: created experiment "q1-probe" -> it was in /mlflow-data/mlflow.db (954 KB). Removed the
+container, started a new one from the same image -> only "Default" left, the probe was gone.
+
+2. Named volume vs bind mount?
+A bind mount would also persist, but it ties the stack to one host path and inherits the host's
+filesystem semantics (uid/gid, permissions, Windows path translation). A named volume is managed
+by Docker, portable across machines, and is the piece Compose creates/removes with the stack.
+Bind mounts are for code you want to edit live; this is opaque server state, so a volume fits.
+
+3. Why does http://mlflow:5000 resolve now?
+Because Compose puts all services on one user-defined network with an embedded DNS server that
+maps each service name to its container IP. In Lab 3 the container was alone on the default
+bridge with no such name, so it had to climb back out to the host via host.docker.internal.
+
+4. Why INFERENCE_URL from the environment?
+So the image is not welded to Compose. The service name "inference" only resolves inside this
+Compose network; run the same image standalone and that hostname does not exist. Reading it from
+the environment keeps one image usable in Compose, in local dev (127.0.0.1:8000), or anywhere
+else, with the URL supplied at run time.
+
+5. Why doesn't inference publish a port?
+Nothing outside Docker needs to call it; only the frontend does, and that traffic stays on the
+Compose network where it reaches inference:8000 directly. Publishing would widen the attack
+surface for no gain. Confirmed in compose ps: mlflow and frontend show 0.0.0.0:...->, inference
+shows a bare 8000/tcp.
+
+6. depends_on and startup: what happens to inference?
+It does not wait for readiness, only for the container to start, so serve.py can hit mlflow too
+early. Observed: inference went to "Exited (1)" because the model load at import time failed.
+With an empty registry the error was RESOURCE_DOES_NOT_EXIST: Registered Model with name=food11
+not found. The fix is to retry on startup, or a healthcheck with depends_on: condition:
+service_healthy, instead of assuming mlflow is ready.
+
+7. docker compose ps - which services publish a port?
+mlflow      0.0.0.0:5000->5000/tcp
+frontend    0.0.0.0:8501->8501/tcp
+inference   8000/tcp        (exposed only, not published)
+Exactly what the compose file says: ports: is set for mlflow and frontend, not for inference.
+
+8. After promoting a new version, does the prediction change?
+No, not until the container restarts. serve.py resolves models:/food11@champion once at import,
+so the loaded weights stay in memory. Tested on the same bread image: with v2 champion the answer
+was Bread 55.94786405563354%; after moving champion to v3 the answer was byte-identical, proving
+it was still the old object. The single command that picks the new version up is
+docker compose restart inference. After that the same image returned Vegetable-Fruit 89.7%,
+the deliberately under-trained v3 (test accuracy 0.07), confirming the swap.
+
+9. Why is restart enough, no rebuild?
+Because the model is not in the image. The image only holds code and dependencies; the weights
+are fetched from mlflow over the network at process start, and the alias is resolved then too.
+Restarting replays that startup, so a new champion is picked up without touching the image. You
+would only rebuild if serve.py or the dependencies changed.
+
+10. Persistence across down/up and down -v
+docker compose down keeps the named volume: after up, versions 1, 2 and 3 were still registered
+and champion still pointed to 3.
+docker compose down -v deletes it: the volume lab1_mlflow-data disappeared, and the fresh stack
+came back with no registered models and only the Default experiment, so inference exited again.
+The difference is that -v removes the declared volumes, which is where the sqlite db and the
+artifacts live; without it only containers and the network are removed.
+
+11. What Compose can't give you here
+Compose runs on one machine, so it cannot provide multi-host scheduling, so no real failover: if
+the host dies, mlflow dies with it. It also has no load balancer, no rolling updates, no health
+based restarts across nodes, and no way to reschedule a replica elsewhere. Replicas would still
+share one local volume, which sqlite cannot support anyway. Getting that needs an orchestrator
+(Kubernetes, Swarm, ECS), mlflow on a real database and object store instead of sqlite plus a
+local folder, and a service/ingress in front of the inference replicas.
