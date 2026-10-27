@@ -6,12 +6,15 @@ Usage:
 
 import io
 import os
+from typing import Annotated
 
-import mlflow
+import numpy as np
 import torch
-from fastapi import FastAPI, File, UploadFile
+from fastapi import FastAPI, File, HTTPException, UploadFile
 from PIL import Image
 from torchvision import transforms
+
+import mlflow
 
 TRACKING_URI = os.environ.get("MLFLOW_TRACKING_URI", "http://127.0.0.1:5000")
 MODEL_URI = "models:/food11@champion"
@@ -48,16 +51,6 @@ def _cpu_torch_load(*args, **kwargs):
 
 torch.load = _cpu_torch_load
 
-_pyfunc_model = mlflow.pyfunc.load_model(MODEL_URI)
-
-# Unwrap the torch module behind the pyfunc flavor (single load, no .pth path).
-_impl = getattr(_pyfunc_model, "_model_impl", _pyfunc_model)
-model = getattr(_impl, "pytorch_model", getattr(_impl, "model", _impl))
-if not hasattr(model, "eval") and hasattr(model, "get_raw_model"):
-    model = model.get_raw_model()
-DEVICE = torch.device("cpu")  # trained on CUDA, served on CPU
-model.to(DEVICE).eval()
-
 _transform = transforms.Compose(
     [
         transforms.Resize((224, 224)),
@@ -68,6 +61,17 @@ _transform = transforms.Compose(
 
 app = FastAPI(title="food11 classifier")
 
+# Loaded at startup, not at import, so tests can import this module without MLflow.
+model = None
+
+
+@app.on_event("startup")
+def load_model():
+    global model
+    if os.environ.get("SKIP_MODEL"):
+        return
+    model = mlflow.pyfunc.load_model(MODEL_URI)
+
 
 @app.get("/health")
 def health():
@@ -75,11 +79,13 @@ def health():
 
 
 @app.post("/predict")
-async def predict(file: UploadFile = File(...)):
+async def predict(file: Annotated[UploadFile, File()]):
+    if model is None:
+        raise HTTPException(status_code=503, detail="model not loaded")
     image = Image.open(io.BytesIO(await file.read())).convert("RGB")
-    tensor = _transform(image).unsqueeze(0).to(DEVICE)
-    with torch.no_grad():
-        logits = model(tensor)
-        probs = torch.softmax(logits, dim=1)[0]
-        conf, idx = torch.max(probs, dim=0)
+    batch = _transform(image).unsqueeze(0).numpy()
+    # the pyfunc returns the network's raw outputs; softmax turns them into probabilities
+    logits = torch.as_tensor(np.asarray(model.predict(batch), dtype=np.float32))
+    probs = torch.softmax(logits, dim=1)[0]
+    conf, idx = torch.max(probs, dim=0)
     return {"category": CLASS_NAMES[idx.item()], "confidence": conf.item()}

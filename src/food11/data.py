@@ -20,7 +20,7 @@ PROCESSED_MINI_DIR = REPO_ROOT / "data" / "food11_processed_mini"
 
 SPLITS = ["training", "evaluation", "validation"]
 
-CATEGORIES = [
+CLASSES = [
     "Bread",
     "Dairy product",
     "Dessert",
@@ -38,30 +38,34 @@ TARGET_SIZE = (128, 128)
 MINI_MAX_PER_CATEGORY = 100
 
 
+def category_from_filename(filename: str) -> str:
+    """'3_120.jpg' -> 'Egg'"""
+    return CLASSES[int(Path(filename).stem.split("_")[0])]
+
+
+def resize_image(img: "Image.Image", size: int = 128) -> "Image.Image":
+    """Returns an RGB image of size x size."""
+    return img.convert("RGB").resize((size, size), Image.LANCZOS)
+
+
 def process_split(split: str) -> None:
     split_dir = RAW_DIR / split
     if not split_dir.exists():
         print(f"Skipping missing split: {split_dir}")
         return
 
-    mini_counts = {category: 0 for category in CATEGORIES}
+    mini_counts = {category: 0 for category in CLASSES}
 
     image_paths = sorted(split_dir.glob("*.jpg"))
     for image_path in image_paths:
         try:
-            category_index = int(image_path.stem.split("_")[0])
+            category = category_from_filename(image_path.name)
         except (ValueError, IndexError):
             print(f"Skipping unrecognized filename: {image_path.name}")
             continue
 
-        if not (0 <= category_index < len(CATEGORIES)):
-            print(f"Skipping out-of-range category index in: {image_path.name}")
-            continue
-
-        category = CATEGORIES[category_index]
-
         with Image.open(image_path) as img:
-            resized = img.convert("RGB").resize(TARGET_SIZE, Image.LANCZOS)
+            resized = resize_image(img, TARGET_SIZE[0])
 
             out_dir = PROCESSED_DIR / split / category
             out_dir.mkdir(parents=True, exist_ok=True)
