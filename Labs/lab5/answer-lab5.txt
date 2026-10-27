@@ -1,0 +1,91 @@
+Lab 5 - Answers
+
+1. Why is it a bad idea for a unit test to load the real model from your MLflow server? List at
+least two ways the test could fail even though your code is correct.
+The test would depend on things outside the code, so it would be slow and flaky. It can fail with
+correct code when:
+- the MLflow server is not running or not reachable (a GitHub runner cannot reach the laptop)
+- the champion alias was moved to another version that predicts something else
+- the artifact download times out or the network drops
+- the registry was wiped (docker compose down -v) so food11 no longer exists
+
+2. The fake model always answers "Bread" with 0.90 confidence. What exactly does
+test_predict_returns_valid_json prove, and what does it not prove?
+It proves our own code works: the upload is accepted, the JPEG is decoded and preprocessed,
+the model output is turned into a class name and a confidence, and the JSON has the right fields
+with confidence between 0 and 1. It does not prove the real model loads, is accurate, returns
+the same output format as the fake, or that the preprocessing and class order match training.
+
+3. Which check caught it? Why is a train/test duplicate more dangerous than a corrupted image,
+even though the corrupted image makes the training script crash and the duplicate does not?
+"no image in two splits" (the md5 hash check): it flagged evaluation/Bread/LEAK_0_0.jpg as a
+duplicate of training/Bread/0_0.jpg. A corrupted image fails loudly, so you notice and fix it. A
+duplicate fails silently: the model is tested on images it has already seen, so test accuracy is
+inflated and you ship a model believing it is better than it is.
+Note: the same check already failed on the untouched dataset. The original Kaggle Food-11 data
+has 611 byte-identical images across splits (43 of them in the mini set).
+
+4. Your CI runner cannot see your data (it is in DVC, and maybe in a local remote). Where in your
+workflow should validate_data.py run so that it still protects you? Give two places.
+- right after data.py, before dvc add / dvc push, so bad data is never versioned or shared
+- at the start of training, after dvc pull, so a model is never trained on data that breaks the
+  contract (or in a CI job that does dvc pull from DagsHub with a token stored as a secret)
+
+5. The smoke job has needs: test. What happens to it if a unit test fails? What would happen
+without needs?
+It is skipped. On the break-test branch, test failed and both smoke and push showed "skipped".
+Without needs, smoke would start in parallel with test, build and probe the image anyway, and
+could come out green even though the tests are red.
+
+6. How long did the whole run take? Run it a second time (push an empty commit with
+git commit --allow-empty -m "ci") and compare. Which step got faster, and why?
+First run 87 s, second run 101 s, so the total did not get faster. The only step that sped up
+was uv sync (5 s -> 4 s) because setup-uv restored the uv cache, and its cache-saving post step
+dropped from 2 s to 0 s since the cache already existed. docker build did not get faster
+(30 s -> 44 s): the smoke job has no cache and every runner starts from an empty machine. With
+the CPU-only torch wheel there is little to download, so the cache barely matters.
+
+7. This answers Question 9 of Lab 3. Why tag with the commit SHA rather than latest? Describe a
+concrete situation where latest leads two machines to run different code.
+A SHA names one exact commit and never moves, so you always know which code is running and can
+redeploy or roll back to it. latest is moved by every push. Example: server A pulls latest at
+10:00, then a commit is pushed and CI moves latest; server B is restarted at 11:00 and pulls
+latest. Both say "latest" but run different code, and nothing shows which one is which.
+
+8. Why does the push job declare permissions: explicitly? What could a compromised step do with a
+token that had write access to everything in the repo?
+To give the token only what that job needs: read the code and write packages. With write access
+to everything, a malicious step (for example a hijacked third-party action) could push commits
+to main, change tags and releases, publish a malicious image under our name, open or merge pull
+requests, and edit issues, all looking like legitimate CI activity.
+
+9. What does the pull request page show? Could you still merge? What does that change for a
+team compared to "everybody runs the tests on their laptop before pushing"?
+It shows "Some checks were not successful - 2 failing, 4 skipped checks": test failing, smoke
+and push skipped, with test and smoke marked Required, and the Merge pull request button greyed
+out. No, merging was refused: "the base branch policy prohibits the merge" (state BLOCKED). After
+the fix both checks passed and the merge went through.
+For a team the rule is enforced by GitHub for everyone, on a clean machine, on every pull
+request. Nobody can forget to run the tests, skip them, or pass them only on their own laptop,
+and reviewers see the result on the PR, so main stays green.
+
+10. For each candidate, what did the gate decide, and with which numbers? With your test-set
+size, how many accuracy points does 2 * se represent?
+Champion v1 test_accuracy 0.8139, n = 1096, se = 0.0118, threshold 0.8374.
+v2 (lr 0.000001, 5 epochs): 0.1013 -> rejected, alias challenger.
+v3 (lr 0.0001, batch 32, 5 epochs): 0.8212 -> rejected, alias challenger moved to v3. It beats
+the champion by 0.7 points, but that is inside the noise.
+2 * se = 0.0235, so 2.35 accuracy points. champion stays on v1.
+
+11. promote.py needs to reach your MLflow server, so it cannot run in GitHub's cloud runners
+while MLflow lives on your laptop. Name two ways to make it run automatically after training.
+- call promote.py at the end of train.py (or chain it in a script or DVC pipeline stage), so it
+  runs on the same machine right after the run is registered
+- move MLflow to a hosted server (DagsHub gives one per repo) and run promote.py in a GitHub
+  Actions job, with the credentials stored as secrets; or use a self-hosted runner on the
+  machine that can reach MLflow
+
+12. Draw (in lab/lab5.md) the pipeline you now have, from git push to a running container. Mark
+which steps are automatic, which still need a human, and where the code version and the model
+version are decided.
+See Labs/lab5/lab5.md.

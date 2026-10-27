@@ -103,3 +103,26 @@ artifact path, so the `runs:/.../model` source points at nothing.
 `create_model_version(name, f"models:/{m.model_id}", run_id=..., model_id=m.model_id)`.
 Passing only the `models:/m-...` URI is rejected with "The model_id request parameter must
 identify the resource that contains the source".
+
+## Lab 5: CI/CD traps
+
+**ruff 0.17 defaults are strict.** `uv run ruff check src tests` failed on import order (I001),
+`File(...)` as a default (B008), `except Exception` (BLE001) and an aliased import (PLR0402) —
+the same with `--isolated`, so these are ruff's own defaults, not a stray config, and CI fails
+identically. Fix: `ruff check --fix` for the import ones, `file: Annotated[UploadFile, File()]`
+in FastAPI, catch `(OSError, ValueError)` around PIL opens.
+
+**pytest can't import `src.food11...`** under `uv run pytest`: the project package is
+`mlops_lab_1`, so the repo root is not on sys.path. Fix: `[tool.pytest.ini_options]
+pythonpath = ["."]` in pyproject.toml.
+
+**The data contract fails on the untouched dataset.** The original Kaggle Food-11 data has 611
+byte-identical images across training/validation/evaluation (43 in the mini set). Not a bug in
+validate_data.py — check the raw md5s before suspecting the code.
+
+**main is protected** (ruleset `protect-main`: PR + `test` and `smoke` required). Direct pushes
+to main are rejected; every change goes through a branch and a pull request. The auto-mode
+safety check also refuses to let Claude merge its own PR — the user clicks Merge.
+
+**CPU-only torch** (lab's choice for CI): image 9.64 GB -> 2.06 GB, but local training goes
+from ~7.5 s to ~65 s per epoch on the mini set.
